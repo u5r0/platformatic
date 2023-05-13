@@ -32,7 +32,7 @@ In this tutorial we'll learn how to:
 
 To follow along with this tutorial you'll need to have these things installed:
 
-- [Node.js](https://nodejs.org/) >= v16.17.0 or >= v18.8.0
+- [Node.js](https://nodejs.org/) >= v18.8.0 or >= v19.0.0
 - [npm](https://docs.npmjs.com/cli/) v7 or later
 - A code editor, for example [Visual Studio Code](https://code.visualstudio.com/)
 
@@ -42,83 +42,86 @@ running commands in a terminal.
 ## Build the backend
 
 ### Create a Platformatic API
-
 First, let's create our project directory:
 
 ```bash
-mkdir -p tutorial-movie-quotes-app/apps/movie-quotes-api/
-
-cd tutorial-movie-quotes-app/apps/movie-quotes-api/
+mkdir -p tutorial-movie-quotes-app/apps
+cd tutorial-movie-quotes-app/apps
 ```
 
-Then let's create a `package.json` file:
+Run the Platformatic creator wizard:
 
 ```bash
-npm init --yes
+npm create platformatic@latest
 ```
-
-Now we can install the [platformatic](https://www.npmjs.com/package/platformatic)
-CLI as a dependency:
-
-```bash
-npm install platformatic
-```
-
-Let's also add some npm run scripts for convenience:
-
-```bash
-npm pkg set scripts.start="platformatic db start"
-
-npm pkg set scripts.dev="npm start"
-```
-
-Now we're going to configure our API. Let's create our Platformatic configuration
-file, **`platformatic.db.json`**:
-
-```json
-{
-  "server": {
-    "logger": {
-      "level": "{PLT_SERVER_LOGGER_LEVEL}"
-    },
-    "hostname": "{PLT_SERVER_HOSTNAME}",
-    "port": "{PORT}"
-  },
-  "db": {
-    "connectionString": "{DATABASE_URL}"
-  },
-  "migrations": {
-    "dir": "./migrations",
-    "autoApply": true
-  }
-}
-```
-
-Now we'll create a **`.env`** file with settings for our configuration to use:
+This interactive command-line tool will ask you some questions about how you'd
+like to set up your new Platformatic project. For this guide, select these options:
 
 ```
-PORT=3042
-PLT_SERVER_HOSTNAME=127.0.0.1
-PLT_SERVER_LOGGER_LEVEL=info
-DATABASE_URL=sqlite://./movie-quotes.sqlite
+- Which kind of project do you want to create?  => DB
+- Where would you like to create your project?  => movie-quotes-api 
+- Do you want to create default migrations?     => Yes
+- Do you want to create a plugin?               => Yes
+- Do you want to use TypeScript?                => No
+- Do you want to install dependencies?          => Yes (this can take a while)
+- Do you want to apply the migrations?          => Yes
+- Do you want to generate types?                => Yes
+- Do you want to create the github action to deploy this application to Platformatic Cloud dynamic workspace? => No
+- Do you want to create the github action to deploy this application to Platformatic Cloud static workspace?  => No
 ```
+
+Once the wizard is complete, you'll have a Platformatic app project in the
+folder `movie-quotes-api`, with example migration files and a plugin script.
 
 :::info
 
-Take a look at the [Configuration reference](/reference/db/configuration.md)
-to see all the supported configuration settings.
+Make sure you run the `npm/yarn/pnpm install` command manually if you
+didn't ask the wizard to do it for you.
 
 :::
 
-### Define the database schema
+Almost done, let's make one tiny edit to the default migration files, in `migrations` directory, edit **`001.do.sql`** so it looks like this:
+```sql
+CREATE TABLE IF NOT EXISTS movies (
+  id INTEGER PRIMARY KEY,
+  title TEXT NOT NULL UNIQUE
+);
+```
+We add the `UNIQUE` query, to avoid movie duplications.
 
-Let's create a new directory to store our migration files:
-
-```bash
-mkdir migrations
+### Now we can start the Platformatic DB server:
 ```
 
-Then we'll create a migration file named **`001.do.sql`** in the **`migrations`**
+```bash
+npm run start
+```
+
+Our Platformatic DB server should start, and we'll see messages like these:
+
+```
+[22:44:38.891] INFO (21209): Server listening at http://127.0.0.1:3042
+[22:44:38.891] INFO (21209):
+   url: "http://127.0.0.1:3042"
+```
+
+Let's open a new terminal and make a request to our server's REST API that
+creates a new quote:
+
+```bash
+curl --request POST --header "Content-Type: application/json" \
+  -d "{ \"title\": \"The Lord of the Rings: The Return of the King\" }" \
+  http://localhost:3042/movies
+```
+
+We should receive a response like this from the API:
+
+```json
+{"id":1,"title":"The Lord of the Rings: The Return of the King"}
+```
+
+### Create an entity relationship
+
+Now let's create a migration file named **`002.do.sql`** in the **`migrations`**
 directory:
 
 ```sql
@@ -128,61 +131,13 @@ CREATE TABLE quotes (
   said_by VARCHAR(255) NOT NULL,
   created_at DATETIME DEFAULT CURRENT_TIMESTAMP
 );
+
+ALTER TABLE movies ADD COLUMN quote_id INTEGER REFERENCES quotes(id);
 ```
 
-Let's also create `.gitignore` so that we avoid accidentally committing our
-SQLite database:
-
-```bash
-echo '*.sqlite' > .gitignore
-```
-
-Now we can start the Platformatic DB server:
-
-```bash
-npm run dev
-```
-
-Our Platformatic DB server should start, and we'll see messages like these:
-
-```
-[11:26:48.772] INFO (15235): running 001.do.sql
-[11:26:48.864] INFO (15235): server listening
-    url: "http://127.0.0.1:3042"
-```
-
-Let's open a new terminal and make a request to our server's REST API that
-creates a new quote:
-
-```bash
-curl --request POST --header "Content-Type: application/json" \
-  -d "{ \"quote\": \"Toto, I've got a feeling we're not in Kansas anymore.\", \"saidBy\": \"Dorothy Gale\" }" \
-  http://localhost:3042/quotes
-```
-
-We should receive a response like this from the API:
-
-```json
-{"id":1,"quote":"Toto, I've got a feeling we're not in Kansas anymore.","saidBy":"Dorothy Gale","createdAt":"2022-09-13 10:39:35"}
-```
-
-### Create an entity relationship
-
-Now let's create a migration file named **`002.do.sql`** in the **`migrations`**
-directory:
-
-```sql
-CREATE TABLE movies (
-  id INTEGER PRIMARY KEY,
-  name TEXT NOT NULL UNIQUE
-);
-
-ALTER TABLE quotes ADD COLUMN movie_id INTEGER REFERENCES movies(id);
-```
-
-This SQL will create a new `movies` database table and also add a `movie_id`
-column to the `quotes` table. This will allow us to store movie data in the
-`movies` table and then reference them by ID in our `quotes` table.
+This SQL will create a new `quotes` database table and also add a `quote_id`
+column to the `movies` table. This will allow us to store quote data in the
+`quotes` table and then reference them by ID in our `movies` table.
 
 Let's stop the Platformatic DB server with `Ctrl + C`, and then start it again:
 
