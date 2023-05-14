@@ -72,6 +72,9 @@ like to set up your new Platformatic project. For this guide, select these optio
 
 Once the wizard is complete, you'll have a Platformatic app project in the
 folder `movie-quotes-api`, with example migration files and a plugin script.
+```bash
+  cd movie-quotes-api
+```
 
 :::info
 
@@ -80,18 +83,16 @@ didn't ask the wizard to do it for you.
 
 :::
 
-Almost done, let's make one tiny edit to the default migration files, in `migrations` directory, edit **`001.do.sql`** so it looks like this:
+Almost done, let's make one tiny edit to the default migration files. In the `migrations` directory, edit **`001.do.sql`** so it looks like this:
 ```sql
 CREATE TABLE IF NOT EXISTS movies (
   id INTEGER PRIMARY KEY,
   title TEXT NOT NULL UNIQUE
 );
 ```
-We add the `UNIQUE` query, to avoid movie duplications.
+We added the `UNIQUE` constraint, to avoid movie duplications.
 
 ### Now we can start the Platformatic DB server:
-```
-
 ```bash
 npm run start
 ```
@@ -105,18 +106,18 @@ Our Platformatic DB server should start, and we'll see messages like these:
 ```
 
 Let's open a new terminal and make a request to our server's REST API that
-creates a new quote:
+creates a new movie:
 
 ```bash
 curl --request POST --header "Content-Type: application/json" \
-  -d "{ \"title\": \"The Lord of the Rings: The Return of the King\" }" \
+  -d "{ \"title\": \"The Lord of the Rings: The Fellowship of the Ring\" }" \
   http://localhost:3042/movies
 ```
 
 We should receive a response like this from the API:
 
 ```json
-{"id":1,"title":"The Lord of the Rings: The Return of the King"}
+{"id":1,"title":"The Lord of the Rings: The Fellowship of the Ring"}
 ```
 
 ### Create an entity relationship
@@ -142,9 +143,8 @@ column to the `movies` table. This will allow us to store quote data in the
 Let's stop the Platformatic DB server with `Ctrl + C`, and then start it again:
 
 ```bash
-npm run dev
+npm run start
 ```
-
 The new migration should be automatically applied and we'll see the log message
 `running 002.do.sql`.
 
@@ -158,37 +158,11 @@ added earlier:
 
 ```graphql
 mutation {
-  saveMovie(input: { name: "The Wizard of Oz" }) {
+  saveQuote(input: { 
+    quote: "One does not simply walk into Mordor",
+    saidBy: "Boromir, the captain of Gondor"
+  }) {
     id
-  }
-}
-```
-
-We should receive a response like this from the API:
-
-```json
-{
-  "data": {
-    "saveMovie": {
-      "id": "1"
-    }
-  }
-}
-```
-
-Now we can update our quote to reference the movie:
-
-```graphql
-mutation {
-  saveQuote(input: { id: 1, movieId: 1 }) {
-    id
-    quote
-    saidBy
-    createdAt
-    movie {
-      id
-      name
-    }
   }
 }
 ```
@@ -199,12 +173,41 @@ We should receive a response like this from the API:
 {
   "data": {
     "saveQuote": {
+      "id": "1"
+    }
+  }
+}
+```
+
+Now we can update our `movie` to reference the `quote`:
+```graphql
+mutation {
+  saveMovie(input: { id: 1, quoteId: 1 }) {
+    id
+    title
+    quote {
+      id
+    	quote
+    	saidBy
+    	createdAt
+    }
+  }
+}
+```
+
+We should receive a response like this from the API:
+
+```json
+{
+  "data": {
+    "saveMovie": {
       "id": "1",
-      "quote": "Toto, I've got a feeling we're not in Kansas anymore.",
-      "saidBy": "Dorothy Gale",
-      "movie": {
+      "title": "The Lord of the Rings: The Fellowship of the Ring",
+      "quote": {
         "id": "1",
-        "name": "The Wizard of Oz"
+        "quote": "One does not simply walk into Mordor",
+        "saidBy": "Boromir, the captain of Gondor",
+        "createdAt": "1684039462787"
       }
     }
   }
@@ -212,20 +215,20 @@ We should receive a response like this from the API:
 ```
 
 Our Platformatic DB server has automatically identified the relationship
-between our `quotes` and `movies` database tables. This allows us to make
+between our `movies` and `quotes` database tables. This allows us to make
 GraphQL queries that retrieve quotes and their associated movies at the same
 time. For example, to retrieve all quotes from our database we can run:
 
 ```graphql
 query {
-  quotes {
+  movies {
     id
-    quote
-    saidBy
-    createdAt
-    movie {
+    title
+    quote {
       id
-      name
+      quote
+      saidBy
+      createdAt
     }
   }
 }
@@ -276,19 +279,23 @@ const quotes = [
 
 module.exports = async function ({ entities, db, sql }) {
   for (const values of quotes) {
-    const movie = await entities.movie.save({ input: { name: values.movie } })
-
-    console.log('Created movie:', movie)
-
-    const quote = {
-      quote: values.quote,
-      saidBy: values.saidBy,
-      movieId: movie.id
-    }
-
-    await entities.quote.save({ input: quote })
+    const quote = await entities.quote.save({ 
+      input: { 
+        quote: values.quote,
+        saidBy: values.saidBy
+      } 
+    })
 
     console.log('Created quote:', quote)
+
+    const movie = {
+      title: values.movie,
+      quoteId: quote.id
+    }
+
+    await entities.movie.save({ input: movie })
+
+    console.log('Created movie:', movie)
   }
 }
 ```
@@ -301,7 +308,7 @@ about how database seeding works with Platformatic DB.
 Let's stop our Platformatic DB server running and remove our SQLite database:
 
 ```
-rm movie-quotes.sqlite
+rm db.sqlite
 ```
 
 Now let's create a fresh SQLite database by running our migrations:
@@ -344,29 +351,41 @@ mkdir -p apps/movie-quotes-frontend/
 cd apps/movie-quotes-frontend/
 ```
 
-And then we'll create a new `package.json` file:
+And then we'll create a new `astro` project:
 
 ```bash
-npm init --yes
+npm create astro@latest -- --template basics
 ```
 
-Now we can install [astro](https://www.npmjs.com/package/astro) as a dependency:
+It will ask you some questions about how you'd like to set up 
+your new Astro project. For this guide, select **these options**:
 
-```bash
-npm install --save-dev astro
+  **Where should we create your new project?**
 ```
-
-Then let's set up some npm run scripts for convenience:
-
-```bash
-npm pkg delete scripts.test
-npm pkg set scripts.dev="astro dev --port 3000"
-npm pkg set scripts.start="astro dev --port 3000"
-npm pkg set scripts.build="astro build"
+   .
+◼  tmpl Using basics as project template
+✔  Template copied
 ```
+  **Install dependencies?**
+```
+   No
+◼  No problem! Remember to install dependencies after setup.
+```
+  **Do you plan to write TypeScript?**
+```
+   No
+◼  No worries! TypeScript is supported in Astro by default, but you are free to continue writing JavaScript instead.
+```
+  **Initialize a new git repository?**
+```
+   No
+◼  Sounds good! You can always run git init manually.
 
-Now we'll create our Astro configuration file, **`astro.config.mjs`** and
-copy and paste in this code:
+Liftoff confirmed. Explore your project!
+Run npm dev to start the dev server. CTRL+C to stop.
+Add frameworks like react or tailwind using astro add.
+```
+Now we'll edit our Astro configuration file, **`astro.config.mjs`**, copy and paste in this code:
 
 ```javascript
 import { defineConfig } from 'astro/config'
@@ -377,7 +396,7 @@ export default defineConfig({
 })
 ```
 
-And we'll also create a **`tsconfig.json`** file and add in this configuration:
+And we'll also edit our **`tsconfig.json`** file and add in this configuration:
 
 ```json
 {
@@ -388,25 +407,11 @@ And we'll also create a **`tsconfig.json`** file and add in this configuration:
 }
 ```
 
-Now let's create the directories where we'll be adding the components for our
-frontend application:
-
-```bash
-mkdir -p src/pages src/layouts src/components
-```
-
-And inside the **`src/pages`** directory let's create our first page, **`index.astro`**:
-
-```astro
-<h1>Movie Quotes</h1>
-```
-
 Now we can start up the Astro development server with:
 
 ```bash
 npm run dev
 ```
-
 And then load up the frontend in our browser at [http://localhost:3000](http://localhost:3000)
 
 ### Create a layout
